@@ -1,0 +1,7 @@
+streamlit
+mlflow>=3.0
+pandas
+numpy
+joblib
+# Versi scikit-learn saat model dilatih. Model .pkl hanya bisa dibuka dengan versi yang sama.
+scikit-learn==1.9.1
