@@ -13,6 +13,10 @@ Model yang menggolongkan skor kredit nasabah menjadi **Good**, **Standard**, ata
 | Gradient Boosting | 0,653 |
 | **Random Forest** | **0,669** |
 
+Setiap kombinasi hyperparameter dicatat di MLflow. Tabel di bawah adalah run induk tiap model, dengan skor validasi terbaik, skor data uji (hanya untuk model terpilih), dan skor data latih.
+
+![Run MLflow untuk empat model: best_cv_f1_macro, test_f1_macro, dan train_f1_macro](docs/screenshots/mlflow-runs.png)
+
 Random Forest terpilih, lalu diuji sekali pada data uji yang tidak pernah dilihat selama pelatihan:
 
 | Metrik (data uji) | Random Forest | Patokan: selalu menebak kelas terbanyak |
@@ -97,6 +101,8 @@ python pipeline.py        # melatih dan menguji model
 streamlit run app.py      # membuka aplikasi prediksi
 mlflow ui --backend-store-uri sqlite:///mlflow.db   # melihat seluruh percobaan
 ```
+
+![Aplikasi Streamlit lokal: form data nasabah dan hasil Credit Score: Good](docs/screenshots/lokal-app-good.png)
 
 File model (`artifacts/best_model.pkl`, sekitar 64 MB) tidak disimpan di repo karena ukurannya. File itu dibuat oleh `python pipeline.py`.
 

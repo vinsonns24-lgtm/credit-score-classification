@@ -9,6 +9,7 @@ Pola diambil dari app_churnPipeline.py (Unified approach):
 - Form input → DataFrame → model.predict() → tampilkan hasil
 """
 
+import altair as alt
 import streamlit as st
 import pandas as pd
 from inferencing import predict
@@ -135,8 +136,19 @@ if st.button("🔍 Prediksi Credit Score", type="primary", width="stretch"):
     st.markdown("### 📊 Probabilitas per Kelas")
     proba_df = pd.DataFrame(
         {"Kelas": list(proba.keys()), "Probabilitas": list(proba.values())}
-    ).set_index("Kelas")
-    st.bar_chart(proba_df)
+    )
+    # Urutan batang mengikuti tingkat risiko (Good → Standard → Poor), bukan urutan abjad
+    grafik = (
+        alt.Chart(proba_df)
+        .mark_bar()
+        .encode(
+            x=alt.X("Kelas:N", sort=list(proba.keys()), title=None, axis=alt.Axis(labelAngle=0)),
+            y=alt.Y("Probabilitas:Q", axis=alt.Axis(format="%"), scale=alt.Scale(domain=[0, 1])),
+            color=alt.Color("Kelas:N", scale=alt.Scale(domain=list(color_map), range=list(color_map.values())), legend=None),
+            tooltip=["Kelas", alt.Tooltip("Probabilitas:Q", format=".0%")],
+        )
+    )
+    st.altair_chart(grafik, width="stretch")
 
     # Tampilkan detail input
     with st.expander("📄 Lihat Detail Input"):
