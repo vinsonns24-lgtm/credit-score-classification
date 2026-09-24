@@ -53,11 +53,37 @@ Soal2_AWS_Pipeline/
   inference_aws.py           handler model untuk SageMaker Endpoint
   deploy_endpoint.ipynb      mengunggah model ke S3 dan membuat endpoint
   app_aws.py                 aplikasi Streamlit yang memanggil endpoint
+
+docs/screenshots/            bukti deployment di AWS
 ```
 
 Pipeline lokal ditutup dengan *deployment gate*: model hanya disetujui kalau F1 macro pada data uji minimal 0,65.
 
-Di AWS, pipeline dijalankan dengan SageMaker Pipelines dalam local mode. Endpoint-nya di-deploy di instance `ml.m5.large`, diuji dengan satu permintaan prediksi, lalu dihapus supaya tidak terus menimbulkan biaya. Karena itu `app_aws.py` tidak bisa dicoba tanpa membuat endpoint baru.
+## Deployment di AWS
+
+Versi AWS memakai pembersihan data, pembagian per nasabah, dan grid hyperparameter yang sama dengan versi lokal. Seluruh alurnya dijalankan di AWS Academy Learner Lab:
+
+**1. SageMaker Pipelines.** Empat tahap (ingest, preprocess, train, evaluate) dijalankan dalam local mode di notebook instance, dan semuanya berhasil. Random Forest kembali terpilih. Di data uji, F1 macro 0,691 dan accuracy 0,702, lolos ambang 0,65. Angkanya sedikit berbeda dari versi lokal (0,689) karena container SageMaker memakai scikit-learn 1.4.2.
+
+![Output SageMaker Pipelines: empat tahap Succeeded dan F1 macro lolos ambang](docs/screenshots/aws-pipeline.png)
+
+Di local mode, SDK SageMaker tidak menyalin hasil tiap tahap ke folder tujuan. Karena itu `pipeline_aws.py` menjalankan ulang skrip yang sama langsung di notebook instance, dan file model yang di-deploy diambil dari hasil itu.
+
+**2. SageMaker Endpoint.** Model dikemas, diunggah ke S3, lalu di-deploy di instance `ml.m5.large`. Smoke test mengirim tiga nasabah dari data uji (Good, Standard, Poor). Ketiganya ditebak benar, dan hasilnya sama dengan uji fungsi endpoint di notebook sebelum deploy.
+
+![Endpoint credit-score-endpoint berstatus InService](docs/screenshots/aws-endpoint.png)
+
+![Smoke test: tiga nasabah ditebak benar oleh endpoint](docs/screenshots/aws-smoke-test.png)
+
+**3. Aplikasi Streamlit di EC2.** `app_aws.py` dijalankan di instance EC2 `t3.small` dengan IAM role yang boleh memanggil endpoint. Form dikirim ke endpoint lewat boto3, dan hasilnya ditampilkan di halaman yang dibuka dari IP publik instance.
+
+![Aplikasi di EC2: nasabah dengan profil rata-rata digolongkan Standard](docs/screenshots/aws-app-standard.png)
+
+![Aplikasi di EC2: nasabah dengan banyak pinjaman dan Credit Mix Bad digolongkan Poor](docs/screenshots/aws-app-poor.png)
+
+![Instance EC2 credit-score-app dengan IP publik yang sama dengan alamat aplikasi](docs/screenshots/aws-ec2-instance.png)
+
+Setelah pengujian selesai, instance EC2 di-terminate dan endpoint dihapus supaya tidak terus menimbulkan biaya. Karena itu `app_aws.py` tidak bisa dicoba tanpa membuat endpoint baru dengan `deploy_endpoint.ipynb`.
 
 ## Menjalankan secara lokal
 
