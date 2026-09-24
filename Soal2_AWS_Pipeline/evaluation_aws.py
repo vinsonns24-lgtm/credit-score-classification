@@ -11,7 +11,7 @@ import json
 import tarfile
 import joblib
 import pandas as pd
-from sklearn.metrics import accuracy_score, f1_score
+from sklearn.metrics import accuracy_score, f1_score, recall_score, classification_report
 
 if __name__ == "__main__":
     # Deteksi environment
@@ -50,20 +50,24 @@ if __name__ == "__main__":
         y_pred  = model.predict(X_test)
         acc     = accuracy_score(y_test, y_pred)
         f1      = f1_score(y_test, y_pred, average="macro", zero_division=0)
+        rec     = recall_score(y_test, y_pred, average="macro", zero_division=0)
 
         # Format laporan yang dikenali SageMaker JsonGet
         report = {
             "multiclass_classification_metrics": {
-                "accuracy": {"value": round(acc, 4), "standard_deviation": "NaN"},
-                "f1_macro": {"value": round(f1,  4), "standard_deviation": "NaN"},
+                "accuracy":     {"value": round(acc, 4), "standard_deviation": "NaN"},
+                "f1_macro":     {"value": round(f1,  4), "standard_deviation": "NaN"},
+                "recall_macro": {"value": round(rec, 4), "standard_deviation": "NaN"},
             }
         }
+
+        print(classification_report(y_test, y_pred, target_names=["Good", "Standard", "Poor"], digits=3))
 
         out_file = os.path.join(output_dir, "evaluation.json")
         with open(out_file, "w") as f:
             json.dump(report, f)
 
-        print(f"✅ Evaluation complete | Accuracy={acc:.4f} | F1 macro={f1:.4f}")
+        print(f"✅ Evaluation complete | Accuracy={acc:.4f} | F1 macro={f1:.4f} | Recall macro={rec:.4f}")
         print(f"   Report disimpan ke: {out_file}")
     else:
         if not os.path.exists(model_path):

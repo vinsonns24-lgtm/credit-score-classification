@@ -18,9 +18,15 @@ terjadi di dalam pipeline itu sendiri.
 
 import json
 import os
+import sys
 import joblib
 import numpy as np
 import pandas as pd
+
+# preprocessing_aws.py ikut dikemas bersama script ini (dependencies di deploy_endpoint.ipynb),
+# supaya input endpoint dibersihkan dengan aturan yang sama persis seperti data latih.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from preprocessing_aws import clean
 
 JSON_CONTENT_TYPE = "application/json"
 CSV_CONTENT_TYPE  = "text/csv"
@@ -77,10 +83,12 @@ def input_fn(request_body, request_content_type: str) -> pd.DataFrame:
 
 def predict_fn(input_data: pd.DataFrame, model) -> dict:
     """
-    Jalankan prediksi. Model adalah Unified Pipeline, jadi preprocessing
-    (scaling numerik + encoding kategorikal) terjadi otomatis di sini —
-    tidak perlu transformasi manual apa pun sebelum predict_proba().
+    Jalankan prediksi. Input dibersihkan dulu dengan clean() dari preprocessing_aws.py,
+    lalu model (Unified Pipeline) melakukan imputasi, scaling, dan one-hot encoding
+    sendiri di dalam predict_proba().
     """
+    # Aturan cleaning yang sama dengan data latih, misalnya nilai di luar rentang wajar → NaN
+    input_data = clean(input_data)[FEATURE_NAMES]
     probs     = model.predict_proba(input_data)
     class_ids = np.argmax(probs, axis=1)
     labels    = [LABEL_MAP[int(i)] for i in class_ids]

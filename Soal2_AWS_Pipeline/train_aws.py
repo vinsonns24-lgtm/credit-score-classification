@@ -1,15 +1,30 @@
+"""
+train_aws.py — Training script untuk SageMaker TrainingStep.
+
+Sama dengan train.py versi lokal:
+- 4 model, masing-masing di-tuning dengan GridSearchCV (grid yang sama)
+- Cross-validation 3-fold per nasabah (StratifiedGroupKFold)
+- Metrik pemilihan: F1 macro
+- Preprocessing (imputasi, scaling, one-hot) digabung dengan classifier dalam
+  satu sklearn Pipeline, lalu disimpan sebagai best_model.pkl
+
+Bedanya dengan versi lokal: tidak ada MLflow. Ringkasan tuning disimpan di
+tuning_summary.json di samping model.
+"""
+
 import os
 import json
 import joblib
 import pandas as pd
+from sklearn.base import clone
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import StandardScaler, OrdinalEncoder
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.linear_model import LogisticRegression
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-from sklearn.model_selection import StratifiedKFold, GridSearchCV
+from sklearn.model_selection import StratifiedGroupKFold, GridSearchCV
 
 NUMERIC_FEATURES = [
     "Age", "Annual_Income", "Monthly_Inhand_Salary", "Num_Bank_Accounts",
@@ -23,7 +38,9 @@ CATEGORICAL_FEATURES = [
     "Occupation", "Credit_Mix", "Payment_of_Min_Amount", "Payment_Behaviour"
 ]
 
-# 1. Buat Preprocessor untuk menerjemahkan teks ke angka
+# 1. Preprocessor: median + scaling untuk numerik, modus + one-hot untuk kategorikal.
+#    Occupation dan Payment_Behaviour tidak punya urutan, jadi one-hot lebih tepat
+#    daripada ordinal encoding.
 numeric_transformer = Pipeline(steps=[
     ("imputer", SimpleImputer(strategy="median")),
     ("scaler", StandardScaler())
@@ -31,15 +48,15 @@ numeric_transformer = Pipeline(steps=[
 
 categorical_transformer = Pipeline(steps=[
     ("imputer", SimpleImputer(strategy="most_frequent")),
-    ("encoder", OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1))
+    ("encoder", OneHotEncoder(handle_unknown="ignore"))
 ])
 
 preprocessor = ColumnTransformer(transformers=[
     ("num", numeric_transformer, NUMERIC_FEATURES),
     ("cat", categorical_transformer, CATEGORICAL_FEATURES)
-])
+], remainder="drop")
 
-# 2. Perhatikan ada tambahan prefix "classifier__" pada param_grid
+# 2. Model dan grid, sama dengan train.py lokal (prefix "classifier__" untuk Pipeline)
 MODELS = [
     (
         "LogisticRegression",
@@ -58,8 +75,8 @@ MODELS = [
     ),
     (
         "GradientBoosting",
-        GradientBoostingClassifier(random_state=42),
-        {"classifier__n_estimators": [100], "classifier__learning_rate": [0.5, 0.1]},
+        GradientBoostingClassifier(n_estimators=100, learning_rate=0.1, random_state=42),
+        {"classifier__max_depth": [3, 5]},
     ),
 ]
 
@@ -74,10 +91,12 @@ def main():
         return
 
     df = pd.read_csv(train_file)
-    X_train = df.drop("target", axis=1)
+    groups  = df["customer_id"]
+    X_train = df[NUMERIC_FEATURES + CATEGORICAL_FEATURES]
     y_train = df["target"]
 
-    cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=42)
+    # CV per nasabah: satu nasabah tidak boleh ada di fold latih dan fold validasi sekaligus
+    cv = StratifiedGroupKFold(n_splits=3, shuffle=True, random_state=42)
 
     best_model = None
     best_model_name = None
@@ -91,21 +110,22 @@ def main():
             n_combos *= len(values)
         print(f"\n▶ Tuning [{model_name}] — {n_combos} kombinasi × {cv.get_n_splits()}-fold CV")
 
-        # 3. Gabungkan preprocessor dan algoritma dalam satu Pipeline utuh!
+        # 3. Gabungkan preprocessor dan algoritma dalam satu Pipeline utuh
         full_pipeline = Pipeline([
-            ("preprocessor", preprocessor),
+            ("preprocessor", clone(preprocessor)),
             ("classifier", classifier)
         ])
 
+        # n_jobs=2 supaya RAM notebook instance tetap aman
         search = GridSearchCV(
             estimator=full_pipeline,
             param_grid=param_grid,
             scoring="f1_macro",
             cv=cv,
-            n_jobs=-1,
+            n_jobs=2,
             refit=True,
         )
-        search.fit(X_train, y_train)
+        search.fit(X_train, y_train, groups=groups)
 
         cv_f1 = float(search.best_score_)
         print(f"  Best params      : {search.best_params_}")

@@ -4,7 +4,7 @@ pipeline_aws.py — SageMaker Pipeline untuk Credit Score Classification.
 Jalankan di SageMaker Notebook Instance.
 Pola dari Training_Pipeline reference (pipeline.py).
 
-Step 1: IrisIngest     → ProcessingStep (data_ingestion_aws.py)
+Step 1: Ingest         → ProcessingStep (data_ingestion_aws.py)
 Step 2: Preprocess     → ProcessingStep (preprocessing_aws.py)
 Step 3: Train          → TrainingStep   (train_aws.py)
 Step 4: Evaluate       → ProcessingStep (evaluation_aws.py)
@@ -47,7 +47,7 @@ for folder in ["ingested", "train", "test", "eval", "model"]:
 # ─── 2. Processor & Estimator ────────────────────────────────────────────────
 
 processor = SKLearnProcessor(
-    framework_version="1.2-1",
+    framework_version="1.4-2",   # sama dengan endpoint dan requirements.txt (scikit-learn 1.4.2)
     role=role,
     instance_type=instance_type,
     instance_count=1,
@@ -58,12 +58,10 @@ estimator = SKLearn(
     entry_point="train_aws.py",
     role=role,
     instance_type=instance_type,
-    framework_version="1.2-1",
+    framework_version="1.4-2",
     sagemaker_session=local_session,
-    # Catatan: train_aws.py tidak membaca hyperparameter ini via argparse (model
-    # di-hardcode langsung di script), jadi dict ini sifatnya dokumentatif saja.
-    # Diselaraskan dengan model yang benar-benar dipakai (GradientBoosting).
-    hyperparameters={"n_estimators": 100, "max_depth": 5, "learning_rate": 0.1},
+    # Model dan grid hyperparameter didefinisikan di train_aws.py (GridSearchCV untuk 4 model),
+    # jadi tidak ada hyperparameter yang dikirim dari sini.
 )
 
 # ─── 3. Step Definitions ─────────────────────────────────────────────────────
@@ -246,6 +244,7 @@ if USE_LOCAL_MODE:
 
 if USE_LOCAL_MODE:
     import subprocess
+    import sys
 
     print("\n=== Populate folder lokal (jalankan script langsung, bukan via Docker) ===")
     local_scripts = [
@@ -260,7 +259,7 @@ if USE_LOCAL_MODE:
         script_path = os.path.join(script_dir, script)
         print(f"\n▶ Menjalankan {script} langsung di host...")
         result = subprocess.run(
-            ["python3", script_path],
+            [sys.executable, script_path],   # Python yang sama dengan pipeline ini, supaya versi scikit-learn sama
             capture_output=True, text=True,
         )
         print(result.stdout)

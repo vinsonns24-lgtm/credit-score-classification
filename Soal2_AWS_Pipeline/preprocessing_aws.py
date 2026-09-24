@@ -1,38 +1,50 @@
 """
 preprocessing_aws.py — Script preprocessing untuk SageMaker ProcessingStep.
 
-PERUBAHAN PENTING (perbaikan bug training-serving skew):
-Step ini SEKARANG hanya melakukan CLEANING + SPLIT data mentah (raw), TIDAK
-lagi fit/transform ColumnTransformer di sini. Kenapa? Karena sebelumnya
-ColumnTransformer di-fit terpisah di step ini, sedangkan classifier dilatih
-di step lain (train_aws.py) tanpa menyertakan transformer itu ke proses
-inference — akibatnya endpoint menerima data mentah padahal model dilatih
-di atas data yang sudah di-scale/encode (training-serving skew).
+Aturan cleaning dan cara membagi data SAMA dengan preprocessing.py versi lokal:
+- Placeholder kotor ('_______', '#F%$D@*&8', dll) → NaN
+- Angka yang tersimpan sebagai teks ('20364.57_') → float
+- '9 Years and 8 Months' → 116 bulan
+- Nilai salah input (di luar rentang wajar) → NaN, BUKAN dipotong ke batas
+- Data dibagi per nasabah (Customer_ID), bukan per baris
 
-Solusi (pola Unified, sama seperti preprocessing.py + train.py versi lokal):
-ColumnTransformer sekarang digabung jadi SATU sklearn Pipeline bersama
-classifier di dalam train_aws.py, lalu disimpan sebagai satu best_model.pkl.
-Jadi step ini cukup keluarkan train.csv/test.csv dalam bentuk RAW (belum
-di-scale/encode) — transformasi terjadi otomatis saat training & inference
-karena sudah "menempel" di dalam pipeline yang sama.
+Step ini hanya membersihkan dan membagi data. Imputasi, scaling, dan encoding
+dilakukan di dalam sklearn Pipeline di train_aws.py, supaya transformasi yang
+sama ikut tersimpan di model dan dipakai lagi oleh endpoint (inference_aws.py).
+
+Kolom customer_id ikut disimpan di train.csv, karena cross-validation di
+train_aws.py juga dibagi per nasabah. Kolom ini bukan fitur model.
 """
 
 import re
 import os
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import GroupShuffleSplit
 
 # ─── Kolom dan konstanta (sama dengan preprocessing.py lokal) ────────────────
 
+GROUP_COL        = "Customer_ID"
 DROP_COLS        = ["ID", "Customer_ID", "SSN", "Name", "Month", "Type_of_Loan"]
 DIRTY_VALUES     = ["_______", "#F%$D@*&8", "!@9#%8", "__10000__", "NM", "_", ""]
 STR_TO_FLOAT_COLS= ["Age", "Annual_Income", "Num_of_Loan", "Num_of_Delayed_Payment",
                     "Changed_Credit_Limit", "Outstanding_Debt", "Amount_invested_monthly"]
-OUTLIER_CAPS     = {"Age":(18,90),"Num_Bank_Accounts":(0,20),"Num_Credit_Card":(0,20),
-                    "Interest_Rate":(0,100),"Num_of_Loan":(0,20),
-                    "Num_Credit_Inquiries":(0,50),"Delay_from_due_date":(0,180),
-                    "Num_of_Delayed_Payment":(0,50)}
+
+# Rentang nilai yang wajar. Nilai di luar rentang ini adalah salah input,
+# jadi diganti NaN (lalu diisi imputer), bukan dipotong ke batasnya.
+# Kalau dipotong, umur 4824 berubah jadi nasabah "berumur 90 tahun" yang palsu.
+VALID_RANGES = {
+    "Age":                    (14, 100),
+    "Annual_Income":          (0, 250_000),
+    "Num_Bank_Accounts":      (0, 15),
+    "Num_Credit_Card":        (0, 15),
+    "Interest_Rate":          (0, 50),
+    "Num_of_Loan":            (0, 15),
+    "Num_Credit_Inquiries":   (0, 25),
+    "Num_of_Delayed_Payment": (0, 30),
+    "Total_EMI_per_month":    (0, 5_000),
+}
+
 NUMERIC_FEATURES = ["Age","Annual_Income","Monthly_Inhand_Salary","Num_Bank_Accounts",
                     "Num_Credit_Card","Interest_Rate","Num_of_Loan","Delay_from_due_date",
                     "Num_of_Delayed_Payment","Changed_Credit_Limit","Num_Credit_Inquiries",
@@ -52,12 +64,13 @@ def str_to_float(val) -> float:
     if pd.isna(val): return np.nan
     s = re.sub(r"[^\d.\-]", "", str(val).strip())
     try: return float(s)
-    except: return np.nan
+    except (ValueError, TypeError): return np.nan
 
 def clean(df: pd.DataFrame) -> pd.DataFrame:
+    """Dipakai saat training (di sini) dan saat prediksi di endpoint (inference_aws.py)."""
     df = df.copy()
     df.replace(DIRTY_VALUES, np.nan, inplace=True)
-    if "Credit_History_Age" in df.columns:
+    if "Credit_History_Age" in df.columns and "Credit_History_Age_Months" not in df.columns:
         df["Credit_History_Age_Months"] = df["Credit_History_Age"].apply(parse_credit_history_age)
         df.drop(columns=["Credit_History_Age"], errors="ignore", inplace=True)
     for col in STR_TO_FLOAT_COLS:
@@ -66,9 +79,9 @@ def clean(df: pd.DataFrame) -> pd.DataFrame:
     for col in NUMERIC_FEATURES:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
-    for col, (lo, hi) in OUTLIER_CAPS.items():
+    for col, (lo, hi) in VALID_RANGES.items():
         if col in df.columns:
-            df[col] = df[col].clip(lo, hi)
+            df.loc[(df[col] < lo) | (df[col] > hi), col] = np.nan
     df.drop(columns=[c for c in DROP_COLS if c in df.columns], inplace=True)
     return df
 
@@ -93,26 +106,30 @@ if __name__ == "__main__":
     if os.path.exists(input_file):
         df = pd.read_csv(input_file)
         y  = df["Credit_Score"].map(TARGET_MAP)
+        groups = df[GROUP_COL]
         df.drop(columns=["Credit_Score"], inplace=True)
 
         df_clean = clean(df)
         X = df_clean[NUMERIC_FEATURES + CATEGORICAL_FEATURES]
 
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42, stratify=y
-        )
+        # Split per nasabah: semua baris milik satu nasabah masuk ke train saja atau test saja
+        splitter = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=42)
+        train_idx, test_idx = next(splitter.split(X, y, groups=groups))
+        assert not set(groups.iloc[train_idx]) & set(groups.iloc[test_idx]), "Ada nasabah di train dan test!"
 
-        # Simpan RAW (belum di-scale/encode) — transform dilakukan di dalam
+        # Simpan RAW (belum di-impute/scale/encode) — transformasi dilakukan di dalam
         # Pipeline saat training (train_aws.py), bukan di sini.
-        train_df = X_train.copy()
-        train_df["target"] = y_train.values
-        test_df  = X_test.copy()
-        test_df["target"]  = y_test.values
+        train_df = X.iloc[train_idx].copy()
+        train_df["customer_id"] = groups.iloc[train_idx].values
+        train_df["target"] = y.iloc[train_idx].values
+        test_df = X.iloc[test_idx].copy()
+        test_df["target"] = y.iloc[test_idx].values
 
         train_df.to_csv(os.path.join(out_train, "train.csv"), index=False)
         test_df.to_csv(os.path.join(out_test,  "test.csv"),  index=False)
 
-        print("✅ Preprocessing (cleaning + split) complete — data masih RAW.")
-        print(f"   Train: {X_train.shape} | Test: {X_test.shape}")
+        print("✅ Preprocessing (cleaning + split per nasabah) complete — data masih RAW.")
+        print(f"   Train: {len(train_df)} baris | Test: {len(test_df)} baris | "
+              f"Nasabah: {groups.iloc[train_idx].nunique()} latih, {groups.iloc[test_idx].nunique()} uji")
     else:
         print(f"❌ File tidak ditemukan: {input_file}")
