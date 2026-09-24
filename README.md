@@ -89,6 +89,13 @@ Di local mode, SDK SageMaker tidak menyalin hasil tiap tahap ke folder tujuan. K
 
 Setelah pengujian selesai, instance EC2 di-terminate dan endpoint dihapus supaya tidak terus menimbulkan biaya. Karena itu `app_aws.py` tidak bisa dicoba tanpa membuat endpoint baru dengan `deploy_endpoint.ipynb`.
 
+## Pelajaran dari proyek ini
+
+- Periksa satuan data sebelum membaginya. Satu nasabah muncul di beberapa baris, jadi data dibagi per nasabah. Pengaruhnya diukur langsung (0,686 dengan pembagian acak, 0,669 per nasabah), bukan diasumsikan.
+- Tidak semua keputusan pembersihan mengubah skor. Mengganti nilai salah input dengan NaN atau memotongnya memberi skor yang hampir sama. Alasan memilih NaN adalah supaya data tetap jujur, dan alasan itu perlu disampaikan apa adanya.
+- Deployment sering gagal di detail kecil: kode AWS sempat berbeda dari versi lokal, satu file tertulis dua kali sampai tidak bisa dijalankan, dan smoke test mengirim kategori sebagai angka. Skrip cloud diuji dulu di laptop, dan smoke test memeriksa bahwa hasil endpoint sama dengan hasil lokal.
+- Resource cloud harus dihapus setelah dipakai. Endpoint dan instance EC2 dihapus berdasarkan namanya, supaya pembersihan tidak bergantung pada kondisi notebook.
+
 ## Menjalankan secara lokal
 
 ```
