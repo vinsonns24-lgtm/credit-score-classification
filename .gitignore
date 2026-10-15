@@ -7,10 +7,14 @@ venv/
 
 # Hasil menjalankan pipeline. Semuanya dibuat ulang oleh `python pipeline.py`.
 ingested/
-artifacts/
+artifacts/*
 mlruns/
 mlflow.db
 *.pkl
+
+# Pengecualian: model final disimpan di repo (sekitar 14 MB setelah dikompres)
+# supaya aplikasi bisa dijalankan di Streamlit Community Cloud tanpa melatih ulang.
+!Soal1bc_Local_Pipeline/credit_scoring/local/artifacts/best_model.pkl
 
 # Hasil packaging model untuk SageMaker
 model.tar.gz

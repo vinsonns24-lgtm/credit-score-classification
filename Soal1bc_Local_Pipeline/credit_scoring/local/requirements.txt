@@ -1,7 +1,9 @@
-streamlit
-mlflow>=3.0
-pandas
-numpy
-joblib
-# Versi scikit-learn saat model dilatih. Model .pkl hanya bisa dibuka dengan versi yang sama.
+# Versi saat model dilatih (dicatat MLflow di artefak model), dengan Python 3.12.
+# Model .pkl hanya bisa dibuka dengan scikit-learn versi yang sama.
 scikit-learn==1.9.1
+pandas==3.0.6
+numpy==2.5.3
+joblib==1.6.0
+mlflow==3.16.1
+streamlit==1.64.0
+altair==6.3.0

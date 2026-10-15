@@ -45,9 +45,10 @@ class CreditScorePreprocessor:
     # Kalau dipotong, umur 4824 berubah jadi nasabah "berumur 90 tahun" yang palsu.
     # Batas dipilih dari data: nilai asli berkumpul di rentang ini, lalu ada celah
     # kosong sebelum nilai rusak. Contoh: suku bunga asli 1–34%, tidak ada nilai
-    # 35–72%, dan nilai rusak mulai dari 73%.
+    # 35–72%, dan nilai rusak mulai dari 73%. Untuk Age dan Total_EMI_per_month
+    # celahnya tidak bersih, jadi sebagian kecil nilai rusak masih lolos (lihat catatan).
     VALID_RANGES = {
-        "Age":                    (14, 100),      # asli 14–56, rusak: -500 dan ratusan–ribuan
+        "Age":                    (14, 100),      # asli 14–56, rusak: -500 dan ratusan–ribuan. Satu nilai 95 lolos
         "Annual_Income":          (0, 250_000),   # asli s.d. ~180 rb, rusak mulai ~267 rb
         "Num_Bank_Accounts":      (0, 15),
         "Num_Credit_Card":        (0, 15),
@@ -55,7 +56,8 @@ class CreditScorePreprocessor:
         "Num_of_Loan":            (0, 15),        # rusak: -100 dan puluhan–ribuan
         "Num_Credit_Inquiries":   (0, 25),
         "Num_of_Delayed_Payment": (0, 30),
-        "Total_EMI_per_month":    (0, 5_000),     # 96% di bawah 652, rusak mulai ribuan
+        "Total_EMI_per_month":    (0, 5_000),     # 99% di bawah 611. Di atas 5.000 pasti rusak (784 nilai),
+                                                  # tetapi 91 nilai rusak di 1.000–5.000 masih lolos
     }
 
     # Fitur numerik SETELAH cleaning (Credit_History_Age_Months menggantikan Credit_History_Age)

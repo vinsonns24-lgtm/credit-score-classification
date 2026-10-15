@@ -31,7 +31,7 @@ F1 macro dipakai sebagai metrik utama karena kelasnya tidak seimbang (Standard 5
 
 **Data dibagi per nasabah, bukan per baris.** Dataset berisi 25.000 baris, tetapi hanya dari 11.254 nasabah, karena satu nasabah dicatat setiap bulan. Kalau dibagi acak per baris, sekitar 80% baris di data uji milik nasabah yang juga ada di data latih, sehingga model dinilai pada orang yang sudah pernah dilihatnya. Karena itu pembagian data memakai `GroupShuffleSplit` dan validasi silang memakai `StratifiedGroupKFold`, keduanya berdasarkan `Customer_ID`. Dengan model dan pembersihan yang sama, validasi acak per baris memberi F1 macro 0,686, sedangkan validasi per nasabah 0,669. Selisihnya kecil, jadi model tidak sekadar menghafal nasabah, tetapi skor per nasabah itu yang jujur.
 
-**Nilai salah input dianggap tidak diketahui, bukan dipotong.** Data berisi umur 4824, jumlah pinjaman -100, dan suku bunga 1663%. Nilai seperti ini diganti NaN lalu diisi median, alih-alih dipotong ke batas wajar. Kalau dipotong ke 90, muncul 473 nasabah yang tiba-tiba berumur tepat 90 tahun, padahal umur aslinya tidak diketahui. Skor model untuk kedua cara hampir sama (0,689 dan 0,690), jadi alasannya bukan skor, melainkan supaya data yang dipakai model tetap jujur. Batas wajar tiap kolom diambil dari celah di data: misalnya suku bunga asli ada di 1–34%, tidak ada nilai 35–72%, dan nilai rusak mulai dari 73%.
+**Nilai salah input dianggap tidak diketahui, bukan dipotong.** Data berisi umur 4824, jumlah pinjaman -100, dan suku bunga 1663%. Nilai seperti ini diganti NaN lalu diisi median, alih-alih dipotong ke batas wajar. Kalau dipotong ke 90, muncul 473 nasabah yang tiba-tiba berumur tepat 90 tahun, padahal umur aslinya tidak diketahui. Skor model untuk kedua cara hampir sama (0,689 dan 0,690), jadi alasannya bukan skor, melainkan supaya data yang dipakai model tetap jujur. Batas wajar tiap kolom diambil dari celah di data: misalnya suku bunga asli ada di 1–34%, tidak ada nilai 35–72%, dan nilai rusak mulai dari 73%. Untuk umur dan cicilan bulanan (EMI) celahnya tidak bersih, sehingga sebagian kecil nilai rusak masih lolos (lihat Keterbatasan).
 
 **Pembersihan data yang sama dipakai saat pelatihan dan prediksi.** Aplikasi Streamlit memanggil fungsi `clean()` yang sama dengan pipeline pelatihan, dan model disimpan sebagai satu `sklearn.Pipeline` (imputasi, scaling, one-hot encoding, lalu classifier). Dengan begitu tidak ada perbedaan perlakuan data antara pelatihan dan pemakaian.
 
@@ -89,6 +89,16 @@ Di local mode, SDK SageMaker tidak menyalin hasil tiap tahap ke folder tujuan. K
 
 Setelah pengujian selesai, instance EC2 di-terminate dan endpoint dihapus supaya tidak terus menimbulkan biaya. Karena itu `app_aws.py` tidak bisa dicoba tanpa membuat endpoint baru dengan `deploy_endpoint.ipynb`.
 
+## Keterbatasan
+
+- Dari 1.457 nasabah Poor di data uji, 167 (11%) digolongkan Good. Bagi pemberi kredit, ini kesalahan yang paling mahal, karena nasabah berisiko tinggi bisa lolos.
+- Recall Standard hanya 0,60. Banyak nasabah Standard digeser ke Good (488) atau Poor (569), kemungkinan karena `class_weight="balanced"` menaikkan bobot kelas yang lebih kecil.
+- F1 di data latih 0,84, sedangkan di data uji 0,69, jadi model masih cenderung menghafal data latih.
+- Pengaturan terbaik berada di ujung grid (`max_depth` 16, 200 pohon). Kedalaman 20, 24, dan tanpa batas sudah diuji terpisah di notebook EDA bagian 6b: CV hanya naik paling banyak 0,001, jauh di bawah simpangan antar-fold (sekitar 0,007), sementara ukuran model naik dua kali lipat.
+- Batas wajar belum menangkap semua salah input: satu umur 95 tahun (nasabah yang sama berumur 24 di bulan lain) dan 91 nilai EMI rusak di kisaran 1.000–5.000 masih lolos. Pengecekan konsistensi per nasabah antarbulan bisa menangkapnya.
+- Gradient Boosting tidak punya pengaturan `class_weight`, jadi perbandingannya dengan tiga model lain tidak sepenuhnya setara.
+- Setiap baris diperlakukan terpisah. Model belum memanfaatkan perubahan kondisi nasabah dari bulan ke bulan.
+
 ## Pelajaran dari proyek ini
 
 - Periksa satuan data sebelum membaginya. Satu nasabah muncul di beberapa baris, jadi data dibagi per nasabah. Pengaruhnya diukur langsung (0,686 dengan pembagian acak, 0,669 per nasabah), bukan diasumsikan.
@@ -98,21 +108,37 @@ Setelah pengujian selesai, instance EC2 di-terminate dan endpoint dihapus supaya
 
 ## Menjalankan secara lokal
 
+Siapkan environment dengan Python 3.12:
+
 ```
 cd Soal1bc_Local_Pipeline/credit_scoring/local
 python -m venv venv
 venv\Scripts\activate
 pip install -r requirements.txt
+```
 
-python pipeline.py        # melatih dan menguji model
-streamlit run app.py      # membuka aplikasi prediksi
-mlflow ui --backend-store-uri sqlite:///mlflow.db   # melihat seluruh percobaan
+Melatih dan menguji model:
+
+```
+python pipeline.py
+```
+
+Membuka aplikasi prediksi:
+
+```
+streamlit run app.py
+```
+
+Melihat seluruh percobaan di MLflow (setelah `pipeline.py` dijalankan):
+
+```
+mlflow ui --backend-store-uri sqlite:///mlflow.db
 ```
 
 ![Aplikasi Streamlit lokal: form data nasabah dan hasil Credit Score: Good](docs/screenshots/lokal-app-good.png)
 
-File model (`artifacts/best_model.pkl`, sekitar 64 MB) tidak disimpan di repo karena ukurannya. File itu dibuat oleh `python pipeline.py`.
+Model final (`artifacts/best_model.pkl`) ikut disimpan di repo, jadi aplikasi bisa langsung dijalankan tanpa melatih ulang. File ini disimpan terkompresi: 14 MB, dibanding 64 MB tanpa kompresi, dengan prediksi yang sama persis. Menjalankan `python pipeline.py` akan membuatnya ulang.
 
 ## Data
 
-Dataset C yang diberikan untuk tugas ini, berasal dari dataset publik *Credit Score Classification* di Kaggle. Berisi data keuangan dan perilaku pembayaran nasabah per bulan, dengan banyak nilai kotor dan salah input.
+Dataset C yang diberikan untuk tugas ini, berasal dari dataset publik [Credit score classification](https://www.kaggle.com/datasets/parisrohan/credit-score-classification) di Kaggle (lisensi CC0: Public Domain). Berisi data keuangan dan perilaku pembayaran nasabah per bulan, dengan banyak nilai kotor dan salah input.

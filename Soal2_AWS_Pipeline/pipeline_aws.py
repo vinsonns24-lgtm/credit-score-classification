@@ -32,7 +32,7 @@ local_session = LocalPipelineSession()
 
 try:
     role = sagemaker.get_execution_role()
-except:
+except Exception:
     role = "LabRole"
 
 instance_type = "local"  # Ganti ke "ml.m5.large" untuk SageMaker cloud penuh
@@ -239,8 +239,9 @@ if USE_LOCAL_MODE:
 # langsung di host, otomatis masuk cabang `else` dan nulis file ke folder
 # lokal asli (ingested/, train/, test/, model/, eval/) — bukan ke /tmp yang
 # dibuang. Pipeline SageMaker di atas tetap membuktikan arsitektur cloud-nya
-# (ProcessingStep/TrainingStep/ConditionStep jalan & berhasil), sedangkan
-# bagian ini yang memastikan folder lokal benar-benar terisi untuk verifikasi.
+# (keempat ProcessingStep/TrainingStep jalan dan berhasil; ConditionStep dilewati
+# di local mode dan diganti pengecekan manual di bagian 5), sedangkan bagian ini
+# yang memastikan folder lokal benar-benar terisi untuk verifikasi.
 
 if USE_LOCAL_MODE:
     import subprocess

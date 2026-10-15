@@ -1,13 +1,11 @@
 """
 inference_aws.py — SageMaker Endpoint inference entry point untuk Credit Score.
 
-POLA UNIFIED (perbaikan bug training-serving skew):
-best_model.pkl sekarang berisi PIPELINE LENGKAP (ColumnTransformer + Classifier
-digabung jadi satu, dilatih bersama di train_aws.py) — bukan classifier polos.
-Artinya endpoint ini TIDAK perlu preprocessing manual lagi: cukup terima data
-RAW (nilai asli seperti "Scientist", "Good", 60000.0, dst) dan panggil
-model.predict_proba() langsung. Preprocessing (scaling + encoding) otomatis
-terjadi di dalam pipeline itu sendiri.
+best_model.pkl berisi sklearn Pipeline lengkap (ColumnTransformer + classifier) yang
+dilatih bersama di train_aws.py. Endpoint menerima data mentah (nilai asli seperti
+"Scientist", "Good", 60000.0), membersihkannya dengan clean() yang sama seperti saat
+training, lalu memanggil predict_proba(). Imputasi, scaling, dan encoding terjadi di
+dalam pipeline, jadi tidak ada perbedaan perlakuan data antara training dan serving.
 
 4 fungsi SageMaker contract:
   model_fn   → load model dari disk (dipanggil sekali saat container start)

@@ -174,7 +174,9 @@ class CreditModelTrainer:
                 if best_cv_f1_this_model > best_cv_f1:
                     best_cv_f1 = best_cv_f1_this_model
                     best_run_id = run_id
-                    joblib.dump(best_pipeline_this_model, ARTIFACTS_DIR / "best_model.pkl")
+                    # compress=3: file 64 MB menjadi sekitar 14 MB dengan prediksi yang sama persis,
+                    # sehingga model bisa disimpan di repo dan dipakai demo Streamlit Community Cloud
+                    joblib.dump(best_pipeline_this_model, ARTIFACTS_DIR / "best_model.pkl", compress=3)
                     print(f"    ⭐ Best model baru! Disimpan ke artifacts/best_model.pkl")
 
         print(f"\n✅ Tuning + Training selesai. Best run: {best_run_id} (CV F1 macro={best_cv_f1:.4f})\n")
